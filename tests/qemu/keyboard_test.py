@@ -31,10 +31,13 @@ PAGE = '''<!doctype html><title>tvbox nav test</title>
 div[role=button]{width:220px;height:90px;margin:20px;background:#456}</style>
 <div><button id="b1">1</button><button id="b2">2</button><button id="b3" disabled>3</button></div>
 <div style="display:flex"><button id="b4">4</button><button id="b5">5</button><div id="d6" role="button" tabindex="0">6</div></div>
-<div id="dialog" role="dialog" style="position:fixed;right:20px;top:20px;width:260px;background:#789">
+<div id="dialog" role="dialog" tabindex="0" style="position:fixed;right:20px;top:20px;width:260px;background:#789">
   <button id="ok-dialog" onclick="this.parentNode.remove()">OK</button></div>
 <form onsubmit="submitted = field.value; return false"><input id="field" style="width:400px;height:50px;margin:20px"></form>
 <script>
+// Like the cookie banners on Netflix and Disney+: a focusable box around the
+// buttons, focused by the site when the page loads.
+document.getElementById("dialog").focus();
 var clicks = [], submitted = null;
 document.querySelectorAll("button, [role=button]").forEach((b) => b.addEventListener("click", () => clicks.push(b.id)));
 </script>'''
@@ -70,7 +73,7 @@ def main():
     daemon.wait_status(lambda s: s["devices"])
     try:
         api(cmd="launch", id="navtest")
-        ready = wait_for(lambda: windows().get("navtest") == ["tvbox-navtest"]
+        ready = wait_for(lambda: [w[:7] for w in windows().get("navtest", [])] == ["chrome-"]
                          and cdp("navtest", "document.readyState") == "complete"
                          and cdp("navtest", "document.documentElement.dataset.tvnav") == "on", 60)
         check("nav service: page loaded with the navigation extension (reloaded by the hub if the "

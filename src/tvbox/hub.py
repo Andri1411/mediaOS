@@ -1,15 +1,19 @@
-"""tvbox-hub: the control centre between input, the on-screen UI and the system.
+"""tvbox-hub: the control centre between input, the on-screen UI, the phone
+and the system. It listens to tvbox-inputd (input.sock) for actions and
+overlay navigation, serves the web UI to tvbox-shell and to paired phones, and
+keeps them up to date over a WebSocket.
 
-Phase 2 scope: the system menu and volume/OSD backend. It listens to
-tvbox-inputd (input.sock) for actions and overlay navigation, serves the web
-UI to tvbox-shell and keeps it up to date over a WebSocket.
-
-HTTP (loopback only until the phone remote adds authentication):
-    GET  /overlay        the overlay page (system menu, OSD)
-    GET  /ws             WebSocket: {"type": "state"|"nav"|"osd", ...} to the UI,
-                         {"cmd": ...} from the UI
-    GET  /api/state      current state as JSON
-    POST /api/cmd        {"cmd": ...}, same commands as over the WebSocket
+HTTP on port 8080; who may do what is decided in auth.classify:
+    GET  /home, /overlay   the TV's pages (loopback only)
+    GET  /phone            the phone remote (paired devices)
+    GET  /pair?t=<token>   pairing link from the QR code on the TV
+    GET  /ws               WebSocket: {"type": "state"|"nav"|"osd"|"open", ...}
+                           to the pages, {"cmd": ...} from them
+    GET  /api/state        current state as JSON
+    POST /api/cmd          {"cmd": ...}, same commands as over the WebSocket
+    POST /api/pair/start   new pairing link (TV only); GET /api/pair/qr.svg?url=
+    GET/POST /api/bindings bindings editor (validates before saving)
+    GET  /api/health       services, restarts, temperature, disk, memory
 """
 from __future__ import annotations
 
@@ -22,8 +26,9 @@ from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
-from . import NAME, audio, services, sway
+from . import NAME, audio, bindings, health, services, sway
 from .apps import HOME, AppManager
+from .auth import COOKIE, DeviceStore, classify, device_name
 from .util import (IN_CLOSE_WRITE, IN_CREATE, IN_DELETE, IN_MOVED_FROM, IN_MOVED_TO, Inotify,
                    input_socket, runtime_dir, sd_notify, setup_logging, watchdog_interval)
 
@@ -91,7 +96,8 @@ class Hub:
         self.config_errors: list[str] = []
         self.input_connected = False
         self._input: asyncio.StreamWriter | None = None
-        self._clients: dict[web.WebSocketResponse, str] = {}    # -> role: overlay | home
+        self._clients: dict[web.WebSocketResponse, str] = {}    # -> role: overlay | home | phone
+        self.devices = DeviceStore()
         self._volume_pending = 0
         self._volume_task: asyncio.Task | None = None
         self._tasks: set[asyncio.Task] = set()
@@ -104,6 +110,7 @@ class Hub:
                 "display_scale": display_scale(), "kernel": os.uname().release,
                 "volume": self.volume, "muted": self.muted, "sinks": self.sinks,
                 "config_errors": self.config_errors, "input_connected": self.input_connected,
+                "devices": self.devices.listing(),
                 "version": release_version(), "hostname": socket.gethostname(),
                 "address": lan_address()}
 
@@ -279,6 +286,38 @@ class Hub:
         cmd = msg.get("cmd")
         if cmd == "close":
             await self.close_overlay()
+        elif cmd == "action":                   # as if a button bound to it was pressed
+            await self.on_action(str(msg["action"]))
+        elif cmd == "button":                   # phone remote: a logical button
+            if msg["button"] not in bindings.BUTTONS or msg.get("state", "tap") not in ("down", "up", "tap"):
+                raise ValueError("unknown button or state")
+            self.input_send(cmd="button", button=msg["button"], state=msg.get("state", "tap"))
+        elif cmd == "pointer":                  # phone touchpad
+            dx, dy = int(msg.get("dx", 0)), int(msg.get("dy", 0))
+            if max(abs(dx), abs(dy)) > 2000:
+                raise ValueError("pointer step too large")
+            self.input_send(cmd="move", dx=dx, dy=dy)
+        elif cmd == "scroll":
+            dx, dy = int(msg.get("dx", 0)), int(msg.get("dy", 0))
+            if max(abs(dx), abs(dy)) > 50:
+                raise ValueError("scroll step too large")
+            self.input_send(cmd="scroll", dx=dx, dy=dy)
+        elif cmd == "click":
+            if msg.get("button", "left") not in ("left", "right"):
+                raise ValueError("button must be left or right")
+            self.input_send(cmd="click", button=msg.get("button", "left"))
+        elif cmd == "volume_set":
+            percent = int(msg["percent"])
+            if not 0 <= percent <= 100:
+                raise ValueError("percent must be 0 to 100")
+            await audio.set_volume(percent)
+            volume = await audio.get_volume()
+            self.volume, self.muted = volume if volume else (None, False)
+            self.volume_changed()
+        elif cmd == "revoke_device":
+            if not self.devices.revoke(str(msg["id"])):
+                raise ValueError("no such device")
+            self.push_state()
         elif cmd == "type":                     # on-screen keyboard (later: the phone)
             text = msg["text"]
             if not isinstance(text, str) or not 0 < len(text) <= MAX_TYPE or "\0" in text:
@@ -387,19 +426,33 @@ class Hub:
 
     # -- HTTP ---------------------------------------------------------------
     async def ws_handler(self, request: web.Request) -> web.WebSocketResponse:
-        ws = web.WebSocketResponse(heartbeat=20)
+        role = request.query.get("role", "")
+        if request[ACCESS] != "tv" and role != "phone":
+            raise web.HTTPForbidden(text="only the TV's own pages may take that role\n")
+        # Pings find phones that vanished. Not for the TV's own pages: WebKit
+        # suspends the hidden overlay page, which then misses the pong and the
+        # connection was dropped about every 30 s (a menu opened in that gap
+        # closed again at once).
+        ws = web.WebSocketResponse(heartbeat=20 if role == "phone" else None)
         await ws.prepare(request)
-        self._clients[ws] = request.query.get("role", "")
+        self._clients[ws] = role
+        held: set[str] = set()              # phone buttons currently down
         await ws.send_json(self.state())
         try:
             async for message in ws:
                 if message.type != WSMsgType.TEXT:
                     continue
                 try:
-                    await self.command(json.loads(message.data))
-                except (ValueError, KeyError, TypeError) as err:
+                    msg = json.loads(message.data)
+                    await self.command(msg)
+                    if msg.get("cmd") == "button":
+                        (held.add if msg.get("state") == "down" else held.discard)(msg["button"])
+                except (ValueError, KeyError, TypeError, AttributeError) as err:
                     await ws.send_json({"type": "error", "error": str(err)})
         finally:
+            # A phone that drops off mid-press must not leave a button held.
+            for button in held:
+                self.input_send(cmd="button", button=button, state="up")
             self._clients.pop(ws, None)
             if not self.has_overlay():
                 await self.close_overlay()      # nobody left to draw the menu
@@ -413,22 +466,88 @@ class Hub:
             msg = await request.json()
             if not isinstance(msg, dict):
                 raise ValueError("expected a JSON object")
-            if request.headers.get("Origin") == EXTENSION_ORIGIN and msg.get("cmd") != "text_focus":
+            if request[ACCESS] == "extension" and msg.get("cmd") != "text_focus":
                 raise ValueError("this origin may only send text_focus")
-            if msg.get("cmd") == "action":       # same as a bound button
-                await self.on_action(str(msg["action"]))
-                return web.json_response({"ok": True})
             return web.json_response(await self.command(msg))
         except (ValueError, KeyError, TypeError) as err:
             return web.json_response({"ok": False, "error": str(err)}, status=400)
 
+    # -- phone pairing ------------------------------------------------------
+    async def api_pair_start(self, request: web.Request) -> web.Response:
+        tv_only(request)
+        address = lan_address()
+        if not address:
+            return web.json_response({"ok": False, "error": "not connected to a network"}, status=409)
+        token, expires = self.devices.start_pairing()
+        port = request.app[PORT_KEY]
+        return web.json_response({"ok": True, "url": f"http://{address}:{port}/pair?t={token}",
+                                  "expires": expires})
+
+    async def api_pair_qr(self, request: web.Request) -> web.Response:
+        tv_only(request)
+        import qrcode
+        import qrcode.image.svg
+        url = request.query.get("url", "")
+        if not url.startswith("http://") or len(url) > 200:
+            raise web.HTTPBadRequest(text="url wanted\n")
+        image = qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage, border=2)
+        return web.Response(body=image.to_string(), content_type="image/svg+xml")
+
+    async def pair(self, request: web.Request) -> web.Response:
+        found = self.devices.pair(request.query.get("t", ""), device_name(request.headers.get("User-Agent", "")))
+        if not found:
+            return web.FileResponse(data_dir() / "web" / "pair-failed.html", status=403)
+        device, token = found
+        log.info("paired %s (%s) from %s", device.name, device.id, request.remote)
+        self.osd(kind="message", text=f"Paired: {device.name}")
+        self.push_state()
+        response = web.HTTPFound("/phone")
+        response.set_cookie(COOKIE, token, max_age=10 * 365 * 86400, httponly=True, samesite="Strict", path="/")
+        return response
+
+    # -- bindings editor, health --------------------------------------------
+    async def api_bindings(self, request: web.Request) -> web.Response:
+        paths = bindings.default_paths()          # defaults, /etc, user
+        if request.method == "GET":
+            def text(path):
+                try:
+                    return path.read_text()
+                except OSError:
+                    return None
+            return web.json_response({"user": text(paths[2]) or "", "etc": text(paths[1]),
+                                      "defaults": text(paths[0]), "errors": self.config_errors})
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        content = body.get("text") if isinstance(body, dict) else None
+        if not isinstance(content, str) or len(content) > 100_000:
+            raise web.HTTPBadRequest(text="text wanted\n")
+        errors = bindings.validate_text(content, "your bindings", paths[:2])
+        if errors or body.get("check_only"):
+            return web.json_response({"ok": not errors, "errors": errors})
+        paths[2].parent.mkdir(parents=True, exist_ok=True)
+        tmp = paths[2].with_suffix(".new")
+        tmp.write_text(content)
+        os.replace(tmp, paths[2])                 # inputd reloads it on its own
+        return web.json_response({"ok": True, "errors": []})
+
+    async def api_health(self, _request: web.Request) -> web.Response:
+        return web.json_response(await health.collect() | {"version": release_version()})
+
+    async def index(self, request: web.Request) -> web.Response:
+        raise web.HTTPFound("/home" if request[ACCESS] == "tv" else "/phone")
+
     def app_factory(self, port: int = PORT) -> web.Application:
         webroot = data_dir() / "web"
-        app = web.Application(middlewares=[local_only])
+        app = web.Application(middlewares=[access])
         app[PORT_KEY] = port
+        app[HUB_KEY] = self
 
-        def page(name):
-            async def handler(_request):
+        def page(name, tv=False):
+            async def handler(request):
+                if tv:
+                    tv_only(request)
                 return web.FileResponse(webroot / name)
             return handler
 
@@ -437,13 +556,22 @@ class Hub:
             # WebKit otherwise keeps using cached /static files.
             response.headers.setdefault("Cache-Control", "no-cache")
         app.on_response_prepare.append(no_cache)
-        app.add_routes([web.get("/overlay", page("overlay.html")), web.get("/home", page("home.html")),
+        app.add_routes([web.get("/", self.index),
+                        web.get("/overlay", page("overlay.html", tv=True)),
+                        web.get("/home", page("home.html", tv=True)),
+                        web.get("/phone", page("phone.html")), web.get("/pair", self.pair),
                         web.get("/ws", self.ws_handler),
                         web.get("/api/state", self.api_state), web.post("/api/cmd", self.api_cmd),
+                        web.post("/api/pair/start", self.api_pair_start),
+                        web.get("/api/pair/qr.svg", self.api_pair_qr),
+                        web.get("/api/bindings", self.api_bindings), web.post("/api/bindings", self.api_bindings),
+                        web.get("/api/health", self.api_health),
                         web.static("/static", webroot)])
         return app
 
-    async def run(self, host: str = "127.0.0.1", port: int = PORT) -> None:
+    async def run(self, host: str = "", port: int = PORT) -> None:
+        # All addresses: the phone remote reaches the box over the LAN; the
+        # access middleware keeps unpaired clients out.
         runner = web.AppRunner(self.app_factory(port), access_log=None)
         await runner.setup()
         await web.TCPSite(runner, host, port).start()
@@ -454,7 +582,7 @@ class Hub:
         self.spawn(self.apps.memory_watch())
         self.watch_services()
         sd_notify("READY=1")
-        log.info("listening on http://%s:%d", host, port)
+        log.info("listening on port %d", port)
         interval = watchdog_interval()
         try:
             while True:
@@ -464,19 +592,37 @@ class Hub:
             await runner.cleanup()
 
 
+HUB_KEY = web.AppKey("hub", object)
+# (RequestKey arrived in aiohttp 3.13; plain keys work everywhere.)
+ACCESS = web.RequestKey("access", str) if hasattr(web, "RequestKey") else "access"
+DEVICE = web.RequestKey("device", object) if hasattr(web, "RequestKey") else "device"
+
+
 @web.middleware
-async def local_only(request: web.Request, handler):
-    """Loopback is not the same as trusted: a web page running in one of the
-    box's own browsers can also send requests to 127.0.0.1. Requests naming
-    another origin (cross-site fetch, WebSocket) or another host (DNS
-    rebinding) are refused; the shell's own page and curl pass. Our own
-    navigation extension may post one command (see api_cmd)."""
-    allowed = {f"{h}:{request.app[PORT_KEY]}" for h in ("127.0.0.1", "localhost")}
-    origin = request.headers.get("Origin")
-    extension = origin == EXTENSION_ORIGIN and request.method == "POST" and request.path == "/api/cmd"
-    if request.host not in allowed or (origin and origin.split("://", 1)[-1] not in allowed and not extension):
+async def access(request: web.Request, handler):
+    """Every request is classified (auth.classify) before it reaches a
+    handler: the TV's own pages, our browser extension, an unpaired phone on
+    the pairing page, or a phone that must show a paired device's cookie.
+    Everything else is refused, including web pages running in the box's own
+    browsers (they can reach 127.0.0.1 too)."""
+    kind = classify(request.remote, request.host, request.headers.get("Origin"), request.path,
+                    request.app[PORT_KEY], EXTENSION_ORIGIN, request.method)
+    if kind == "deny":
         raise web.HTTPForbidden(text="tvbox-hub: request from a foreign origin refused\n")
+    if kind == "lan":
+        device = request.app[HUB_KEY].devices.check(request.cookies.get(COOKIE))
+        if not device:
+            if request.path in ("/", "/phone"):
+                return web.FileResponse(data_dir() / "web" / "pair-failed.html", status=401)
+            raise web.HTTPUnauthorized(text="tvbox-hub: pair this device first (TV: Settings, Pair phone)\n")
+        request[DEVICE] = device
+    request[ACCESS] = kind
     return await handler(request)
+
+
+def tv_only(request: web.Request) -> None:
+    if request[ACCESS] != "tv":
+        raise web.HTTPForbidden(text="tvbox-hub: only the TV can do that\n")
 
 
 def main() -> None:

@@ -92,9 +92,9 @@ def test_browser_command_line(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     youtube, netflix = services.load([DEFAULTS])[:2]
     argv = app.browser_argv(youtube, Path("/run/user/1000/tvbox/cache"))
-    assert argv[0] == "chromium" and argv[-1] == "https://www.youtube.com/tv"
+    assert argv[0] == "chromium" and argv[-1] == "--app=https://www.youtube.com/tv"
     assert f"--user-data-dir={tmp_path}/data/tvbox/profiles/youtube" in argv
-    assert "--class=tvbox-youtube" in argv and "--kiosk" in argv
+    assert "--kiosk" not in argv
     assert "--disk-cache-dir=/run/user/1000/tvbox/cache/youtube" in argv
     assert any(a.startswith("--user-agent=") and "SmartTV" in a for a in argv)
     assert any(a.startswith("--enable-features=") and "AcceleratedVideoDecodeLinuxGL" in a for a in argv)
@@ -104,7 +104,7 @@ def test_browser_command_line(tmp_path, monkeypatch):
                for a in app.browser_argv(netflix, tmp_path))
     custom = services.parse([BASE, ("u", tomllib.loads(
         '[[service]]\nid = "netflix"\nflags = ["--force-dark-mode"]'))])[1]
-    assert app.browser_argv(custom, tmp_path)[-2:] == ["--force-dark-mode", "https://www.netflix.com/browse"]
+    assert app.browser_argv(custom, tmp_path)[-2:] == ["--force-dark-mode", "--app=https://www.netflix.com/browse"]
 
 
 def test_profile_gets_widevine_hint_only_when_the_module_exists(tmp_path, monkeypatch):

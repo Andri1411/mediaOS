@@ -7,9 +7,9 @@ fully usable from the couch with an Xbox controller or a phone.
 - Decisions and things that didn't work: [docs/DECISIONS.md](docs/DECISIONS.md)
 - Original brief: [media-distro-prompt.md](media-distro-prompt.md)
 
-**Status:** Phase 4 (d-pad navigation for Netflix/Disney+, on-screen keyboard, mouse
-mode) on top of Phases 1–3 (installer, base system, input daemon, system menu, home
-screen, browser services, YouTube TV, Jellyfin client).
+**Status:** Phase 5 (phone remote with QR pairing, bindings editor, health page) on top
+of Phases 1–4 (installer, base system, input daemon, system menu, home screen, browser
+services, YouTube TV, Jellyfin, navigation for Netflix/Disney+, on-screen keyboard).
 
 ## Building
 
@@ -27,7 +27,7 @@ make serve-repo   # let the VM pacman -Syu from your local build
 make lint         # shellcheck + python checks
 make qemu-smoke   # self-test of the QEMU harness, headless
 make qemu-install # unattended install from the ISO + checks on the booted system
-make qemu-session # input, menu, launcher, navigation and keyboard checks in that VM (fake Xbox pad)
+make qemu-session # input, menu, launcher, navigation, keyboard and phone checks in that VM
 ```
 
 Docker needs to be usable by your user (`sudo usermod -aG docker $USER`, then

@@ -1,0 +1,67 @@
+/* Phone remote: touch-sized controls, dark like the TV UI. */
+:root {
+  --bg: #101418; --panel: #1b222b; --row: #242d38; --text: #e6ebf2; --dim: #8f9bab;
+  --accent: #5fb4ff; --danger: #e5484d; --ok: #46a758; --warn: #ffb454;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, sans-serif; }
+body { padding: 0 16px calc(76px + env(safe-area-inset-bottom)); }
+[hidden] { display: none !important; }
+header { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
+#app-name { font-weight: 600; font-size: 18px; }
+#link-state { font-size: 13px; color: var(--ok); }
+#link-state.off { color: var(--warn); }
+h2 { font-size: 14px; color: var(--dim); font-weight: 600; margin: 22px 0 8px; text-transform: uppercase; letter-spacing: .04em; }
+button {
+  font: inherit; color: var(--text); background: var(--row); border: 0; border-radius: 12px;
+  padding: 14px 10px; min-height: 52px; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+}
+button:active, button.pressed { background: #3a4658; }
+button.primary { background: var(--accent); color: #06121f; }
+button.danger { background: #3b1d20; color: #ffb3b5; }
+.row { display: flex; gap: 10px; margin-top: 10px; }
+.row > * { flex: 1; }
+.row.small button { min-height: 44px; padding: 10px; }
+
+.dpad { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 76px); gap: 8px;
+  max-width: 300px; margin: 6px auto 4px; }
+.dpad button { font-size: 22px; border-radius: 16px; }
+.dpad .up { grid-area: 1 / 2; } .dpad .left { grid-area: 2 / 1; } .dpad .ok { grid-area: 2 / 2; background: #334152; }
+.dpad .right { grid-area: 2 / 3; } .dpad .down { grid-area: 3 / 2; }
+
+.typing { display: flex; gap: 10px; margin-top: 16px; }
+.typing input { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--text); background: var(--panel);
+  border: 1px solid #2e3947; border-radius: 12px; padding: 12px; }
+.typing button { flex: 0 0 auto; padding: 0 18px; }
+#touchpad { margin-top: 14px; height: 210px; border-radius: 16px; background: var(--panel); border: 1px dashed #3a4658;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  color: var(--dim); touch-action: none; user-select: none; -webkit-user-select: none; }
+#touchpad small { font-size: 12px; }
+
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--panel); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+.list li .sub { color: var(--dim); font-size: 13px; }
+.list li button { min-height: 40px; padding: 8px 14px; }
+.list li.tap { cursor: pointer; }
+.list li .dot { width: 10px; height: 10px; border-radius: 50%; background: #3a4658; flex: 0 0 auto; }
+.list li .dot.on { background: var(--ok); } .list li .dot.bad { background: var(--danger); }
+.list li .dot.warn { background: var(--warn); }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 6px 0; }
+.facts dt { color: var(--dim); } .facts dd { margin: 0; }
+.dim { color: var(--dim); font-size: 14px; }
+textarea { width: 100%; min-height: 300px; font: 13px/1.45 ui-monospace, monospace; color: var(--text);
+  background: var(--panel); border: 1px solid #2e3947; border-radius: 12px; padding: 12px; }
+pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+#bindings-result.ok { color: var(--ok); } #bindings-result.bad { color: var(--danger); }
+details { margin-top: 12px; } summary { color: var(--dim); }
+
+#tabs { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 4px;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); background: #0b0e12f2; }
+#tabs button { flex: 1; min-height: 46px; padding: 6px 2px; font-size: 13px; background: transparent; color: var(--dim); }
+#tabs button.active { color: var(--text); background: var(--row); }
+
+.notice { max-width: 420px; margin: 18vh auto 0; text-align: center; }
+.notice h1 { font-size: 22px; }

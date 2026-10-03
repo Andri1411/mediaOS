@@ -43,10 +43,15 @@
     const selector = site.candidates ? `${GENERIC}, ${site.candidates}` : GENERIC;
     const all = [...document.querySelectorAll(selector)].filter((el) =>
       visible(el) && !(site.ignore && el.closest(site.ignore)));
-    const dialogs = [...document.querySelectorAll(DIALOGS)].filter((d) => visible(d) && all.some((el) => d.contains(el)));
+    // Boxes around other targets are not targets themselves (a cookie banner
+    // with tabindex="0" around its buttons): the focus goes to what is inside.
+    const targets = all.filter((el) => !all.some((other) => other !== el && el.contains(other)));
+    const dialogs = [...document.querySelectorAll(DIALOGS)].filter((d) => visible(d) && targets.some((el) => d.contains(el)));
     const top = dialogs[dialogs.length - 1];
-    return top ? all.filter((el) => top.contains(el)) : all;
+    dialogOpen = Boolean(top);
+    return top ? targets.filter((el) => top.contains(el)) : targets;
   }
+  let dialogOpen = false;
 
   function setFocus(el) {
     current?.removeAttribute('data-tvnav-focus');
@@ -80,12 +85,18 @@
     return best;
   }
 
-  function first() {
+  function first(within = null) {
     const all = candidates().filter((el) => {
+      if (within && !within.contains(el)) return false;
       const r = el.getBoundingClientRect();
       return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
     });
-    // top-left-most thing on screen
+    // In a dialog the first button in reading order (not a link inside its
+    // text, e.g. "cookie policy"); otherwise the top-left-most thing on screen.
+    if (dialogOpen || within) {
+      return all.find((el) => el.matches('button, [role="button"], input[type="submit"], input[type="button"]'))
+        ?? all[0] ?? null;
+    }
     return all.sort((p, q) => {
       const a = p.getBoundingClientRect(), b = q.getBoundingClientRect();
       return (a.top - b.top) || (a.left - b.left);
@@ -103,7 +114,9 @@
       // In a text field left/right move the caret; up/down leave the field.
       if (isText(active) && arrow[0]) return;
       if (!current?.isConnected || !visible(current)) current = null;
-      const target = current ? next(current, arrow[0], arrow[1]) : first();
+      // The site may have focused a box around targets (e.g. a dialog): start inside it.
+      const inside = current && candidates().some((el) => el !== current && current.contains(el));
+      const target = !current ? first() : inside ? first(current) : next(current, arrow[0], arrow[1]);
       event.preventDefault();
       event.stopPropagation();
       if (target) setFocus(target);

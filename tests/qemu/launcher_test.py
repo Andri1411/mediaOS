@@ -210,8 +210,9 @@ def main():
             f.write(TEST_SERVICES + BROWSER_SERVICE)
         wait_state(lambda s: service(s, "webtest"), 5)
         api(cmd="launch", id="webtest")
-        placed = wait_for(lambda: windows().get("webtest") == ["tvbox-webtest"], 60)
-        check("browser service: Chromium window with its own app id on its workspace", bool(placed), str(windows()))
+        # (an app window's id is chrome-<host>__<path>-Default; placement is by systemd unit)
+        placed = wait_for(lambda: [w[:7] for w in windows().get("webtest", [])] == ["chrome-"], 60)
+        check("browser service: Chromium app window on its workspace", bool(placed), str(windows()))
         playing = wait_for(lambda: cdp("webtest", "!document.querySelector('video').paused && "
                                        "document.querySelector('video').currentTime > 0") is True, 40)
         check("browser service: page loads and video plays", playing,

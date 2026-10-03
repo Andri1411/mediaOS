@@ -1,6 +1,6 @@
 # tvbox architecture
 
-Status: **Phases 1 to 4 implemented.** Phase 0 review answers are in
+Status: **Phases 1 to 5 implemented.** Phase 0 review answers are in
 [§6](#6-review-outcome-phase-0); where the implementation departed from this
 plan, DECISIONS.md says why.
 
@@ -238,7 +238,7 @@ Python, aiohttp, `dbus-fast`. The control center:
 
 - **HTTP/WebSocket server** on port 8080. Requests from loopback (home
   screen, overlay) are trusted; requests from the LAN (phone) need a device
-  token. Serves `src/web/`. (Until Phase 5 it binds to loopback only.)
+  token (see DECISIONS.md, Phase 5, for the exact rules). Serves `src/web/`.
 - **App manager.** Services are defined in `services.toml` (same override
   chain as bindings):
 

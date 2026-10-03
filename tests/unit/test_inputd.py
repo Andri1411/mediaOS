@@ -110,6 +110,17 @@ def test_ui_mode_sends_navigation_instead_of_keys(tmp_path):
     run(tmp_path, scenario)
 
 
+def test_touchpad_commands(tmp_path):
+    async def scenario(daemon, client, out, user):
+        await client.call(cmd="move", dx=5, dy=-3)
+        await client.call(cmd="scroll", dy=-2)
+        await client.call(cmd="click", button="right")
+        assert (await client.call(cmd="click", button="middle"))["ok"] is False
+        assert out.events == [("move", 5, -3), ("scroll", -2, 0),
+                              ("click", True, "right"), ("click", False, "right")]
+    run(tmp_path, scenario)
+
+
 def test_mouse_toggle_and_click(tmp_path):
     async def scenario(daemon, client, out, user):
         client.writer.write(b'{"cmd": "action", "action": "mouse:toggle"}\n')

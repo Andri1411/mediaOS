@@ -63,6 +63,10 @@ async def change_volume(delta: int) -> None:
     await run("wpctl", "set-volume", "-l", "1.0", SINK, f"{abs(delta)}%{'+' if delta > 0 else '-'}")
 
 
+async def set_volume(percent: int) -> None:
+    await run("wpctl", "set-volume", SINK, f"{percent / 100:.2f}")
+
+
 async def toggle_mute() -> None:
     await run("wpctl", "set-mute", SINK, "toggle")
 

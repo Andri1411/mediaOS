@@ -8,6 +8,8 @@ arch=(any)
 license=(GPL-3.0-or-later)
 depends=(
     tvbox-session tvbox-release python python-evdev python-aiohttp
+    # QR code for pairing the phone remote
+    python-qrcode
     # shell: GTK4 layer-shell window showing the web UI
     gtk4 gtk4-layer-shell webkitgtk-6.0 python-gobject python-cairo noto-fonts
     # on-screen keyboard: types text through sway's virtual-keyboard protocol

@@ -19,6 +19,7 @@ and may send commands:
     {"cmd": "button", "button": "up", "state": "down"|"up"|"tap"}   (phone remote)
     {"cmd": "action", "action": "volume:+2"}
     {"cmd": "key", "combo": "ctrl+l"}
+    {"cmd": "move", "dx": 5, "dy": -3} / {"cmd": "scroll", "dy": 1} / {"cmd": "click", "button": "left"}
     {"cmd": "status"} / {"cmd": "reload"}
 A command with an "id" gets a {"reply": id, "ok": bool, "error"?} line back.
 """
@@ -445,6 +446,16 @@ class InputDaemon:
                 self.action(action, "")
         elif cmd == "key":
             self.output.tap(parse_combo(msg["combo"]))
+        elif cmd == "move":                     # phone touchpad
+            self.output.move(int(msg.get("dx", 0)), int(msg.get("dy", 0)))
+        elif cmd == "scroll":
+            self.output.scroll(int(msg.get("dy", 0)), int(msg.get("dx", 0)))
+        elif cmd == "click":
+            button = msg.get("button", "left")
+            if button not in ("left", "right"):
+                raise ValueError(f"unknown mouse button {button!r}")
+            self.output.click(True, button)
+            self.output.click(False, button)
         elif cmd == "status":
             return self.status()
         elif cmd == "reload":

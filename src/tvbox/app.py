@@ -43,8 +43,10 @@ def browser_argv(service: Service, cache_root: Path) -> list[str]:
         BROWSER,
         f"--user-data-dir={profile_dir(service.id)}",
         "--ozone-platform=wayland",
-        "--kiosk",
-        f"--class={NAME}-{service.id}",
+        # An app window (no tabs or address bar); sway makes it fullscreen.
+        # Not --kiosk: on cold starts Chromium then sometimes kept drawing
+        # with the offsets of its first, smaller window (black bar on the
+        # left, page cut off on the right), seen in about 1 of 4 boots.
         "--no-first-run",
         "--no-default-browser-check",
         "--password-store=basic",                 # no desktop keyring on the box
@@ -63,7 +65,7 @@ def browser_argv(service: Service, cache_root: Path) -> list[str]:
         argv.append(f"--user-agent={service.user_agent}")
     if service.nav:
         argv.append(f"--load-extension={NAV_EXTENSION}")
-    return argv + list(service.flags) + [service.url]
+    return argv + list(service.flags) + [f"--app={service.url}"]
 
 
 def prepare_profile(service: Service) -> None:

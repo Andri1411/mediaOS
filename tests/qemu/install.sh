@@ -140,6 +140,10 @@ check "Widevine fetch set up" \
 check "navigation extension and typing tool installed" \
     'test -f /usr/share/tvbox/extensions/tvnav/manifest.json && command -v wtype >/dev/null'
 
+# Phase 5: the phone remote is reachable from the LAN but only after pairing
+check "hub answers the LAN, refuses unpaired clients" \
+    'code=$(curl -s -o /dev/null -w "%{http_code}" "http://$(ip -4 -o addr show scope global | awk "{print \$4}" | cut -d/ -f1 | head -1):8080/api/state"); [ "$code" = 401 ]'
+
 $qmp screendump "$state/screen.png" && log "screenshot: $state/screen.png"
 ((failed == 0)) || die "some checks failed"
 log "all checks passed"

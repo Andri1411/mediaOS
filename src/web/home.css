@@ -28,6 +28,9 @@ header {
 
 #settings-view { flex: 1; position: relative; }
 #settings-view #panel { position: absolute; top: 0; bottom: 0; left: 2rem; width: 38rem; background: transparent; }
+#pair { position: absolute; top: 3rem; left: 44rem; right: 3rem; text-align: center; font-size: 1.3rem; color: var(--dim); }
+#pair-qr { width: 22rem; height: 22rem; background: #fff; border-radius: 1rem; padding: .6rem; }
+#pair-url { color: var(--text); font-size: 1.5rem; overflow-wrap: anywhere; }
 #about { margin: 0 1rem; font-size: 1.35rem; display: grid; grid-template-columns: 10rem 1fr; row-gap: .7rem; }
 #about dt { color: var(--dim); }
 #about dd { margin: 0; }

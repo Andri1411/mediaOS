@@ -482,8 +482,7 @@ off the password manager, autofill, translate, notifications and metrics.
 ### One Chromium instance per service
 `tvbox-app@<id>.service` runs `tvbox-app <id>`, which builds the command line
 from `services.toml`: own `--user-data-dir` under
-`~/.local/share/tvbox/profiles/<id>` (logins persist), `--kiosk`, Wayland,
-`--class=tvbox-<id>`, disk cache on tmpfs (`$XDG_RUNTIME_DIR`, 256 MB cap),
+`~/.local/share/tvbox/profiles/<id>` (logins persist), an app window (`--app=<url>`, originally `--kiosk`, see Phase 5), Wayland, disk cache on tmpfs (`$XDG_RUNTIME_DIR`, 256 MB cap),
 `--password-store=basic` (there is no keyring daemon), DevTools on a random
 loopback port recorded in the profile. Separate instances cost memory (32 GB
 is plenty) and buy isolation: a crashed or wedged Netflix doesn't take
@@ -712,3 +711,129 @@ pages (focus ring, cookie banner, keyboard on the e-mail field).
 (profile picker, rows, player), Floatplane's TV interface after sign-in,
 streaming quality experiments, how the keyboard and the focus ring look on a
 TV from the couch, mouse-mode speed and the cursor on the TV.
+
+## Phase 5 — phone remote, pairing, bindings editor, health page
+
+### One server, four kinds of client
+The hub now listens on all addresses (port 8080). Every request is classified
+before any handler runs (`auth.classify`):
+- **TV** — from loopback with a loopback `Host` and no foreign `Origin`: the
+  shell's pages and local tools. Unchanged from Phase 2–4, including the
+  refusal of web pages running in the box's own browsers.
+- **Extension** — our `tvnav` extension, one command (`text_focus`).
+- **Unpaired phone** — may load only the pairing link and static files.
+- **Paired phone** — must present a device cookie. Its `Origin`, if any, must
+  be the box itself as the phone sees it.
+Some things stay TV-only even for paired phones: the TV's own pages,
+starting a pairing and drawing its QR code. A phone may take only the
+`phone` role on the WebSocket, so it can't make the hub believe the overlay
+is connected.
+
+### Pairing
+Settings → Pair a phone shows a QR code and the same link as text:
+`http://<box address>:8080/pair?t=<token>`. The token is random (128 bit),
+works once and expires after 5 minutes; a new one is made when it runs out.
+Opening the link sets a device token (256 bit) in an `HttpOnly`,
+`SameSite=Strict` cookie valid for ten years. The box stores only SHA-256
+hashes of device tokens (`~/.local/share/tvbox/devices.json`, mode 600), so
+the file can't be used to impersonate a phone. Paired phones are listed with
+a "Remove" on the TV and on every phone.
+
+`SameSite=Strict` plus the `Origin` check stop other web sites the phone has
+open from driving the box (cross-site requests carry no cookie; a forged
+`Origin` is refused). A DNS-rebinding page gets no cookie either, because the
+cookie belongs to the box's address.
+
+Limitation: the cookie is bound to the address in the link. If the router
+gives the box a different IP, phones must pair again. A DHCP reservation for
+the box avoids that. A `tvbox.local` name (mDNS) would survive address
+changes but needs Avahi on the box and isn't resolved by every phone; not
+done for now.
+
+### The phone sends controller buttons
+The d-pad, OK, Back, Home, volume and play/pause buttons send the same
+logical buttons a controller does (`button` down/up), so bindings, long
+presses (hold Home for the menu) and hold-repeat behave identically. If the
+phone's connection drops while a button is held, the hub releases it.
+Typing uses the same path as the on-screen keyboard (DevTools for browsers,
+`wtype` otherwise). The touchpad sends pointer steps, clicks and scroll steps
+straight to inputd's virtual mouse, so it works without switching the TV to
+mouse mode.
+
+### Bindings editor
+Edits `~/.config/tvbox/bindings.toml` only (the defaults are shown read-only
+underneath). The text is validated with the same parser inputd uses, on top
+of the defaults and `/etc`, before it is saved; a file with problems is
+never written, and "Check" validates without saving. inputd picks the saved
+file up through inotify as usual.
+
+### Health page
+Collected on request (every 5 s while the page is open, nothing in the
+background): `tvbox-*` user units and the important system units with state
+and restart counts, restart events from the user journal of the last 7 days,
+CPU temperature (`coretemp`, else the package thermal zone), uptime, load,
+free disk and memory, and whether the box booted from a snapshot. System
+journal entries are not shown: the `tv` user can't read them, by design.
+
+### Tried and didn't work (Phase 5)
+- **Checking the WebSocket role after the upgrade:** the 403 came too late,
+  the connection was already a WebSocket. The role is now checked before.
+- **The QR code from `python-qrcode`'s SVG factory** has no XML
+  declaration; fine for `<img>`, only the test assumed otherwise.
+- **WebSocket pings to the TV's own pages:** the hub pinged every client
+  every 20 s and dropped those that didn't answer within 10 s. WebKit
+  suspends the hidden overlay page, so the overlay's connection was reset
+  about 30 s after the shell started; a menu opened at that moment closed
+  again at once (one failed run of the menu test). Pings are now only for
+  phones.
+
+### Phase 5 status
+**Tested in QEMU.** From a freshly built ISO, `make qemu-install` passes (26
+checks, the new one: the hub answers on the LAN address and refuses an
+unpaired client). In that run three menu checks failed because of the
+WebSocket ping problem above; with the fix, `make qemu-session` passes on
+the same installation: input 39, system menu 29, launcher 24,
+navigation/keyboard/mouse 26, keyboard-and-screen 7, and the new phone
+checks 32. The phone checks run on the host and reach the VM through QEMU's
+port forward, so the box sees them as a LAN client: refused before pairing,
+pairing link once only, cookie flags, QR code, what a phone may not do,
+launching, typing into an app, buttons, touchpad, a dropped connection
+releasing a held button, WebSocket role and authentication, the bindings
+editor (refusing, checking, saving and applying), health, and removing a
+phone. The phone page was also rendered at phone size with headless
+Chromium, and the TV's pairing screen checked on a screenshot.
+
+**Needs a real phone and the real box:** scanning the QR code with an
+iPhone and an Android phone, touch feel of the touchpad and the d-pad
+(hold-repeat, long press), typing on a phone keyboard with autocorrect, the
+CPU temperature sensor on the real board (the VM has none).
+
+**Open question:** whether to add `tvbox.local` (Avahi/mDNS) so a phone
+survives the box changing its IP address.
+
+### Found while testing Phase 5 by hand in the VM
+- **Netflix and Disney+ showed a black bar on the left with the page cut off
+  on the right.** Reproduced on cold starts in a second VM (about 1 in 4
+  boots, any service). Chromium kept drawing with the offsets of its first,
+  smaller window although it reported itself fullscreen; leaving and
+  re-entering fullscreen fixed it, but doing that automatically a few
+  seconds after start did not catch every case. Browser services now run as
+  Chromium *app windows* (`--app=<url>`, no tabs or address bar; sway makes
+  them fullscreen) instead of `--kiosk`: 0 of 6 cold boots showed the bar.
+  App windows ignore `--class`; their Wayland app id is
+  `chrome-<host>__<path>-Default`, which nothing relies on (windows are
+  placed by their systemd unit).
+- **The cookie banners could not be controlled with the d-pad.** Both sites
+  use OneTrust, whose banner is itself focusable (`tabindex="0"`) and
+  focused on load. The focus ring sat on the banner box, and every button
+  was "inside the current element" and therefore skipped. Boxes that
+  contain other targets are no longer targets; when the site has focused
+  such a box, the next arrow press goes inside it; and in a dialog the
+  first press lands on its first button in reading order. Verified on both
+  sign-in pages: Netflix down, right, OK = "Reject"; Disney+ down, down, OK.
+- **YouTube offered at most 1080p.** In the VM, also on a 4K screen (scale
+  2), YouTube offers up to 1080p: Chromium reports decoding as supported and
+  smooth but not power-efficient (software decoding), and YouTube's TV app
+  appears to use that to cap the quality. With VA-API on the real box 4K
+  should appear. This is on the hardware checklist, not something the VM can
+  show.

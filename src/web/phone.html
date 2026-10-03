@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#101418">
+<title>tvbox remote</title>
+<link rel="stylesheet" href="/static/phone.css">
+</head>
+<body>
+<header><span id="app-name">tvbox</span><span id="link-state" class="off">connecting…</span></header>
+
+<section id="tab-remote">
+  <div class="dpad">
+    <button data-button="up" class="up">▲</button>
+    <button data-button="left" class="left">◀</button>
+    <button data-button="ok" class="ok">OK</button>
+    <button data-button="right" class="right">▶</button>
+    <button data-button="down" class="down">▼</button>
+  </div>
+  <div class="row">
+    <button data-button="back">Back</button>
+    <button data-button="home" title="hold for the system menu">Home</button>
+    <button data-action="ui:system_menu">Menu</button>
+  </div>
+  <div class="row">
+    <button data-button="vol_down">Vol −</button>
+    <button data-button="start">Play / Pause</button>
+    <button data-button="vol_up">Vol +</button>
+  </div>
+  <div class="row">
+    <button data-button="lb">⏪</button>
+    <button data-button="mute">Mute</button>
+    <button data-button="rb">⏩</button>
+  </div>
+  <form id="type-form" class="typing">
+    <input id="type-text" placeholder="Type into the TV…" autocomplete="off" autocapitalize="off">
+    <button type="submit">Send</button>
+  </form>
+  <div class="row small">
+    <button data-key="backspace">Delete</button>
+    <button data-key="enter">Enter</button>
+    <button data-action="ui:keyboard">TV keyboard</button>
+  </div>
+  <div id="touchpad">Touchpad<br><small>drag = move · tap = click · two fingers = scroll · long tap = right click</small></div>
+</section>
+
+<section id="tab-apps" hidden>
+  <ul id="apps" class="list"></ul>
+</section>
+
+<section id="tab-settings" hidden>
+  <h2>Volume</h2>
+  <input id="volume" type="range" min="0" max="100" step="1">
+  <h2>Audio output</h2>
+  <ul id="outputs" class="list"></ul>
+  <h2>Display scale</h2>
+  <div class="row" id="scales"></div>
+  <h2>Paired phones</h2>
+  <ul id="devices" class="list"></ul>
+  <h2>System</h2>
+  <div class="row">
+    <button id="restart-session">Restart session</button>
+    <button id="reboot" class="danger">Reboot</button>
+  </div>
+  <p class="dim">Updates arrive in a later version.</p>
+</section>
+
+<section id="tab-health" hidden>
+  <dl id="health-summary" class="facts"></dl>
+  <h2>Services</h2>
+  <ul id="health-services" class="list"></ul>
+  <h2>Recent restarts</h2>
+  <ul id="health-restarts" class="list"></ul>
+</section>
+
+<section id="tab-bindings" hidden>
+  <p class="dim">Your changes to the controller bindings (<code>~/.config/tvbox/bindings.toml</code>).
+     Only the buttons you list change; everything else keeps the defaults below.
+     Saved bindings apply immediately.</p>
+  <textarea id="bindings-text" spellcheck="false" autocapitalize="off"></textarea>
+  <div class="row">
+    <button id="bindings-check">Check</button>
+    <button id="bindings-save" class="primary">Save</button>
+  </div>
+  <pre id="bindings-result"></pre>
+  <details><summary>Defaults</summary><pre id="bindings-defaults"></pre></details>
+</section>
+
+<nav id="tabs">
+  <button data-tab="remote" class="active">Remote</button>
+  <button data-tab="apps">Apps</button>
+  <button data-tab="settings">Settings</button>
+  <button data-tab="health">Health</button>
+  <button data-tab="bindings">Bindings</button>
+</nav>
+<script src="/static/common.js"></script>
+<script src="/static/phone.js"></script>
+</body>
+</html>
